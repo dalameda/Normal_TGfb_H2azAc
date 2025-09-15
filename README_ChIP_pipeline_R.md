@@ -1,38 +1,61 @@
-# Differential Binding Analysis in ChIP-Seq Data
+# Load Required Libraries
+library(DESeq2)
+library(ggplot2)
 
-This R script outlines the process of performing differential binding analysis on ChIP-seq data using the DESeq2 package, and visualizing the results with a scatterplot highlighting differentially bound peaks based on specific thresholds for log fold change and adjusted p-value.
+# Define the project name. This variable is used to name output files accordingly.
+project <- "ChIP-Seq.pf"
 
-## Requirements
+# Load Binding Intensity Data
+# Specify the path to the file containing binding intensities per peak.
+file_path <- "sample_peaks.broadPeak/total.peaks_counts.txt"
+# Read the table. Assumes first column as rownames (peaks) and remaining columns as samples.
+peaks_counts <- read.table(file_path, header = TRUE, sep = "\t", row.names = 1)
 
-- R environment
-- Packages: DESeq2, ggplot2
+# Specify Conditions for the Samples
+# Adjust the condition assignments based on your experimental design.
+conditions <- factor(c(rep("Normal", 2), rep("TGFb", 2)))
 
-## Steps
+# Differential Expression Analysis with DESeq2
+# Initialize a DESeqDataSet. The design formula specifies the conditions under which the experiments were conducted.
+dds <- DESeqDataSetFromMatrix(countData = peaks_countdata,
+                              colData = DataFrame(condition = conditions),
+                              design = ~ condition)
 
-1. **Load Required Libraries**: Make sure DESeq2 and ggplot2 are installed and loaded.
+# Run the DESeq analysis pipeline
+dds <- DESeq(dds)
 
-2. **Project Name Definition**: Specify a project name to label output files.
+# Extracting Results with Log Fold Change Threshold
+# Apply log2 fold change threshold (|log2FC| > 0.75) and adjusted p-value (< 0.05) to identify significantly differentially bound peaks.
+resultsData <- results(dds, contrast = c("condition", "TGFb", "Normal"))
+sigResults <- resultsData[which(abs(resultsData$log2FoldChange) > 0.75 & resultsData$padj < 0.05), ]
 
-3. **Data Preparation**:
-   - **Binding Intensity Data**: Load a table containing binding intensities per peak across samples.
-   - **Conditions Specification**: Define the experimental conditions for each sample.
+# Visualization: Scatterplot of Differentially Bound Peaks
 
-4. **Differential Expression Analysis**:
-   - Initialize a `DESeqDataSet` object.
-   - Run the DESeq analysis to perform normalization and differential analysis.
+# Filter for significant results based on adjusted p-value < 0.05 and |log2FoldChange| > 0.75
+sigResults <- subset(res, padj < 0.05 & abs(log2FoldChange) > 0.75)
 
-5. **Result Extraction**:
-   - Apply thresholds to identify significantly differentially bound peaks. The thresholds are |log2FC| > 0.75 and adjusted p-value < 0.05.
+# Prepare normalized counts data for plotting
+normCounts <- as.data.frame(counts(dds, normalized=TRUE))
+normCounts$Normal_avg <- rowMeans(normCounts[,1:2])
+normCounts$TGFb_avg <- rowMeans(normCounts[,3:4])
 
-6. **Visualization**:
-   - **Scatterplot Creation**: Plot average normalized counts for two conditions, highlighting peaks with significant differential binding. Peaks with a log fold change greater than 0.75 are shown in red (upregulated), those with a log fold change less than -0.75 in blue (downregulated), and non-significant peaks in grey.
+# Assign colors based on differential expression status
+# Peaks upregulated (logFC > 0.75) are colored red, downregulated (logFC < -0.75) blue,
+# and all others grey to denote non-significant differential expression
+normCounts$color <- ifelse(rownames(normCounts) %in% rownames(sigResults[log2FoldChange > 0.75, ]), "red2",
+                           ifelse(rownames(normCounts) %in% rownames(sigResults[log2FoldChange < -0.75, ]), "blue3", "grey"))
 
-## Usage
+# Create the scatterplot
+ggplot(normCounts, aes(x = Normal_avg, y = TGFb_avg)) +
+  geom_point(aes(color = color), alpha=0.6) +
+  scale_color_identity() +  # Use actual color values specified in 'color' column
+  theme_minimal() +
+  labs(title = "Differentially Bound Peaks Scatterplot",
+       subtitle = "Red: Upregulated (logFC > 0.75), Blue: Downregulated (logFC < -0.75), Grey: Non-significant",
+       x = "Average Normalized Counts in Normal Condition",
+       y = "Average Normalized Counts in TGFb Condition",
+       color = "Differential Expression Status") +
+  theme(legend.position = "none")  # Optionally remove the legend if colors are self-explanatory
 
-To run the analysis, execute the R script in an environment where the necessary libraries are installed. Adjust the file path and conditions according to your dataset.
-
-## Output
-
-- A scatterplot visualizing the differential binding of peaks between two conditions, highlighting the significantly differentially bound peaks.
-
-This workflow facilitates the identification and visualization of genomic regions with significant changes in binding affinity, providing insights into the regulatory mechanisms under investigation.
+# Note: This plot visually distinguishes differentially bound peaks that meet the specific
+# criteria of adjusted p-value < 0.05 and |log2FoldChange| > 0.75, according to the defined color scheme.
