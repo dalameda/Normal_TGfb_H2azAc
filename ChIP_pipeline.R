@@ -7,7 +7,7 @@ project <- "ChIP-Seq.pf"
 
 # Load Binding Intensity Data
 # Specify the path to the file containing binding intensities per peak.
-file_path <- "sample_peaks.broadPeak/rep.over.cond_total.peaks_counts.txt"
+file_path <- "data/total.peaks_counts.txt"
 # Read the table. Assumes first column as rownames (peaks) and remaining columns as samples.
 peaks_counts <- read.table(file_path, header = TRUE, sep = "\t", row.names = 1)
 
