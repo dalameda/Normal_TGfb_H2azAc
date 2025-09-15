@@ -36,7 +36,7 @@ Submit the job to SLURM using the following command:
 
 > sbatch ChIP_pipeline.sh
 
-The pipeline requires a sample information file (`sample.info.20231013.txt`) located in the `data/` directory, detailing sample IDs, reference genomes, spike-in genomes, and paired-end FASTQ file paths.
+The pipeline requires a sample information file (`sample.info.txt`) located in the `data/` directory, detailing sample IDs, reference genomes, and paired-end FASTQ file paths.
 
 ## Configuration
 - Modify `sample_info` variable to point to your sample information file.
@@ -44,7 +44,7 @@ The pipeline requires a sample information file (`sample.info.20231013.txt`) loc
 
 ## Pipeline Steps
 1. **Preprocessing**: Trimming adapters from raw FASTQ files using cutadapt.
-2. **Mapping**: Aligning reads to the reference genome and spike-in sequences with Bowtie2.
+2. **Mapping**: Aligning reads to the reference genome sequences with Bowtie2.
 3. **Peak Calling**: Identifying enriched regions using MACS2.
 4. **Post-processing**: Removing blacklisted regions and generating BigWig files for visualization.
 5. **Differential Binding Analysis**: Using DESeq2 to compare binding across conditions.
