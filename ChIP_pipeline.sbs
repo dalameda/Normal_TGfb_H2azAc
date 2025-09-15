@@ -9,8 +9,8 @@
 
 # # LAUNCH like this:
 # conda env create -f scripts/chip.yaml --name ChIP
-# script="draft_2.sbs"
-# sample_info=sample.info.20231013.txt
+# script="ChIP_pipeline.sbs"
+# sample_info=sample.info.txt
 # LIST=($(cut -f1 data/${sample_info} | cat )); NUMFILES=${#LIST[@]}; ZBNUMFILES=$(($NUMFILES - 1))
 # if [ $ZBNUMFILES -ge 0 ]; then sbatch --mem=40G --array=0-$ZBNUMFILES scripts/$script data/$sample_info; fi
 
@@ -47,10 +47,10 @@ source activate ChIP # chip.yaml for environment configuration
 #   - bioconda::bioconductor-edger
 
 # Define file paths and variables
-sample_info="data/sample.info.20231013.txt"     # Metadata file with sample information
+sample_info="data/sample.info.txt"     # Metadata file with sample information
 genome="mm10"                                   # Reference genome
-genome_mix=/mnt2/fscratch/users/oncoh_011_ibima/dalameda/snakemake/chip/data/refGenomes/mm10.fa
-genome_index=/mnt2/fscratch/users/oncoh_011_ibima/dalameda/snakemake/chip/data/refGenomes/mm10_index
+genome_mix=chip/data/refGenomes/mm10.fa
+genome_index=chip/data/refGenomes/mm10_index
 # Specify the blacklist file location
 blacklist="data/mm10.reordered.blacklist.bed"
 
@@ -65,15 +65,13 @@ mkdir -p $trim_dir $map_dir $bam_dir $bigwig_dir $peak_dir
 # Read sample information and assign variables for each sample
 sample_list=($(cut -f1 $sample_info))
 genome_list=($(cut -f2 $sample_info))
-spike_genome_list=($(cut -f3 $sample_info))
-Rd1list=($(cut -f4 $sample_info | cat ))
-Rd2list=($(cut -f5 $sample_info | cat ))
-conditions=$(cut -f6 $sample_info | sort | uniq)
+Rd1list=($(cut -f3 $sample_info | cat ))
+Rd2list=($(cut -f4 $sample_info | cat ))
+conditions=$(cut -f5 $sample_info | sort | uniq)
 
 # Extract details for the current sample based on SLURM task ID
 sample=${sample_list[$SLURM_ARRAY_TASK_ID]}
 genome=${genome_list[$SLURM_ARRAY_TASK_ID]}
-spike_genome=${spike_genome_list[$SLURM_ARRAY_TASK_ID]}
 fastqR1=${Rd1list[$SLURM_ARRAY_TASK_ID]}
 fastqR2=${Rd2list[$SLURM_ARRAY_TASK_ID]}
 
@@ -82,8 +80,7 @@ cutadapt -a AGATCGGAAGAGC -A AGATCGGAAGAGC \
   -o $trim_dir/${sample}_1.trimmed.fastq \
   -p $trim_dir/${sample}_2.trimmed.fastq $fastqR1 $fastqR2
 
-# Align reads to the reference genome and spike-in sequences
-# Note: Ensure genome and spike-in indices are prepared in advance
+# Align reads to the reference genome
 
 # Step 2: Mapping with Bowtie2
 bowtie2 -p $SLURM_CPUS_PER_TASK --time -k 1 -x ${genome_index} \
@@ -113,8 +110,8 @@ bamCoverage --binSize 5 --normalizeUsing CPM --exactScaling \
   -of bigwig -o $bigwig_dir/${sample}_sample.bw \
   --numberOfProcessors $SLURM_CPUS_PER_TASK
 
-# Step 4: Peak Calling with MACS2 for the Spike-in Data
-# Perform peak calling separately for each dataset (sample and spike-in) using MACS2.
+# Step 4: Peak Calling with MACS2
+# Perform peak calling separately for each dataset using MACS2.
 # This step identifies enriched regions (peaks) in your ChIP-seq data.
 macs2 callpeak -t $bam_dir/${sample}_sample_sorted_rmdup_chr_black.bam \
 -f BAM -g dm -n ${sample}_sample --outdir $peak_dir \
@@ -200,16 +197,16 @@ done
 # Prepare these consensus peaks for quantitative analysis by formatting them into SAF and using featureCounts to quantify binding intensities. This process enables a comparative analysis of binding across samples or conditions based on peak intensity.
 
 # Create a comprehensive list of consensus peaks by merging individual broadPeak files.
-mergePeaks -d given $broadpeak_list > ${peak_dir}/Consensus/sample_peaks.broadPeak/rep.over.cond_total.peaks.txt
+mergePeaks -d given $broadpeak_list > ${peak_dir}/Consensus/sample_peaks.broadPeak/total.peaks.txt
 
 # Prepare for differential binding analysis by formatting the consensus peaks into a SAF file.
 # The SAF format is required by featureCounts for read quantification and includes columns for gene ID,
 # chromosome, start and end positions, and strand information.
-echo -e "GeneID\tChr\tStart\tEnd\tStrand" > ${peak_dir}/Consensus/sample_peaks.broadPeak/rep.over.cond_total.peaks.saf
+echo -e "GeneID\tChr\tStart\tEnd\tStrand" > ${peak_dir}/Consensus/sample_peaks.broadPeak/total.peaks.saf
 
 # Convert the consensus peaks into SAF format, extracting necessary fields from the merged peak file.
 # This conversion is a preparatory step that structures the data for efficient read counting.
-awk 'NR>1 {print $1"\t"$2"\t"$3"\t"$4"\t"$5}' ${peak_dir}/Consensus/sample_peaks.broadPeak/rep.over.cond_total.peaks.txt >> ${peak_dir}/Consensus/sample_peaks.broadPeak/rep.over.cond_total.peaks.saf
+awk 'NR>1 {print $1"\t"$2"\t"$3"\t"$4"\t"$5}' ${peak_dir}/Consensus/sample_peaks.broadPeak/total.peaks.txt >> ${peak_dir}/Consensus/sample_peaks.broadPeak/total.peaks.saf
 
 # Accumulate a list of BAM files for read counting. This list includes all BAM files generated from
 # aligned reads across the entire dataset, encompassing all conditions and replicates.
@@ -221,7 +218,7 @@ done < $bam_dir/bam.list.txt
 # This command applies a fractional overlap of 0.2 to consider a read as contributing to peak intensity,
 # ensuring that only reads significantly overlapping with peaks are counted. The output is a matrix of
 # read counts per consensus peak across all samples, facilitating downstream differential binding analysis.
-featureCounts -p -O --fracOverlap 0.2 -T ${SLURM_CPUS_PER_TASK} -a ${peak_dir}/Consensus/sample_peaks.broadPeak/rep.over.cond_total.peaks.saf -F SAF -o ${peak_dir}/Consensus/sample_peaks.broadPeak/rep.over.cond_total.peaks_counts.txt ${files_bam}
+featureCounts -p -O --fracOverlap 0.2 -T ${SLURM_CPUS_PER_TASK} -a ${peak_dir}/Consensus/sample_peaks.broadPeak/total.peaks.saf -F SAF -o ${peak_dir}/Consensus/sample_peaks.broadPeak/total.peaks_counts.txt ${files_bam}
 
 # This quantification step is pivotal for comparing binding intensities across samples or conditions, laying
 # the foundation for identifying differentially bound regions reflective of biological differences driven by
@@ -229,7 +226,7 @@ featureCounts -p -O --fracOverlap 0.2 -T ${SLURM_CPUS_PER_TASK} -a ${peak_dir}/C
 
 # Step 8: Annotate Consensus Peaks for Downstream Analysis
 # Use HOMER to annotate the consensus peaks, providing biological context for the identified regions
-annotatePeaks.pl ${peak_dir}/Consensus/sample_peaks.broadPeak/rep.over.cond_total.peaks_counts.txt mm10 > ${peak_dir}/Consensus/sample_peaks.broadPeak/rep.over.cond_total.peaks_counts.annot.txt
+annotatePeaks.pl ${peak_dir}/Consensus/sample_peaks.broadPeak/total.peaks_counts.txt mm10 > ${peak_dir}/Consensus/sample_peaks.broadPeak/total.peaks_counts.annot.txt
 
 # Merge tagDirectories replicates
 
